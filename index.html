@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#101b3d">
+<title>Sky Dash — Star Collector</title>
+<style>
+:root{color-scheme:dark;--ink:#f6f7ff;--muted:#b9c7ec;--panel:#17264de8;--pink:#ff8fc8;--gold:#ffd86b}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:18px;background:radial-gradient(ellipse at 50% 0%,#304b88 0%,#101b3d 62%,#090f25 100%);font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:var(--ink)}
+.app{width:min(100%,520px);text-align:center}
+h1{font-size:clamp(2rem,8vw,3.1rem);line-height:1;margin:8px 0;color:#fff;text-shadow:0 4px 0 #26386b,0 0 25px #8eafff55;letter-spacing:.03em}
+.subtitle{color:var(--muted);margin:10px 0 18px}
+.hud{display:flex;gap:10px;margin-bottom:10px}
+.stat{flex:1;background:var(--panel);border:1px solid #9db7ff38;border-radius:14px;padding:10px 12px}
+.stat small{display:block;color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.12em}
+.stat strong{font-size:1.25rem}
+.game-wrap{position:relative;border:2px solid #91aaff77;border-radius:20px;overflow:hidden;box-shadow:0 18px 55px #0006;background:#182a58}
+canvas{display:block;width:100%;height:auto;aspect-ratio:4/5;touch-action:none}
+.overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;background:#09132bb8;backdrop-filter:blur(5px)}
+.overlay.hidden{display:none}
+.panel{max-width:330px;background:#17264df2;border:1px solid #a9bdff55;border-radius:22px;padding:24px 20px;box-shadow:0 12px 40px #0005}
+.panel .emoji{font-size:3rem}
+.panel h2{font-size:1.7rem;margin:8px 0}
+.panel p{color:var(--muted);line-height:1.5;margin:8px 0 18px}
+button{font:inherit;color:var(--ink);font-weight:750;border:1px solid #ffffff35;cursor:pointer;touch-action:manipulation;transition:transform .12s,filter .12s}
+button:active{transform:scale(.96);filter:brightness(1.12)}
+.primary{border:0;border-radius:12px;padding:12px 24px;background:linear-gradient(135deg,#ff8fc8,#a98bff);color:#171533;box-shadow:0 5px 0 #7055b4}
+.controls{display:flex;justify-content:center;gap:14px;margin:14px auto 8px}
+.control{width:76px;height:54px;border-radius:16px;background:#243966;border-color:#a9bdff55;font-size:1.45rem;box-shadow:0 4px 0 #101b3d}
+.hint{font-size:.86rem;color:var(--muted);line-height:1.6;margin:8px 0}
+footer{font-size:.75rem;color:#8799c9;margin-top:14px}
+@media(min-width:650px){.controls{margin-top:12px}}
+</style>
+</head>
+<body>
+<main class="app">
+  <h1>☁️ SKY DASH ⭐</h1>
+  <p class="subtitle">Collect the stars. Glide past the clouds!</p>
+  <section class="hud" aria-label="Game statistics">
+    <div class="stat"><small>Score</small><strong id="score">0</strong></div>
+    <div class="stat"><small>Best</small><strong id="best">0</strong></div>
+    <div class="stat"><small>Stars</small><strong id="stars">0</strong></div>
+  </section>
+  <div class="game-wrap">
+    <canvas id="game" width="400" height="500" aria-label="Sky Dash game area"></canvas>
+    <div class="overlay" id="overlay">
+      <div class="panel">
+        <div class="emoji" id="panelEmoji">🌈</div>
+        <h2 id="panelTitle">Ready to fly?</h2>
+        <p id="panelText">Move left and right, collect golden stars, and avoid the fluffy clouds.</p>
+        <button class="primary" id="startBtn">Start playing</button>
+      </div>
+    </div>
+  </div>
+  <div class="controls" aria-label="Movement controls">
+    <button class="control" id="leftBtn" aria-label="Move left">←</button>
+    <button class="control" id="rightBtn" aria-label="Move right">→</button>
+  </div>
+  <p class="hint">Keyboard: ← → or A / D<br>Mobile: use the arrow buttons. Collect ⭐ and dodge ☁️.</p>
+  <footer>Made with HTML, CSS and JavaScript · Keep reaching for the stars!</footer>
+</main>
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const $ = id => document.getElementById(id);
+  const overlay = $('overlay');
+  let state = 'ready', score = 0, stars = 0, best = 0, last = 0, spawn = 0, elapsed = 0;
+  let objects = [], sparkles = [];
+  const player = { x: 200, y: 420, w: 34, h: 38, speed: 260 };
+  const keys = { left: false, right: false };
+  try { best = Number(localStorage.getItem('skyDashBest') || 0); } catch {}
+  $('best').textContent = best;
+  const rand = (a,b) => a + Math.random() * (b-a);
+
+  function reset() {
+    score = 0; stars = 0; elapsed = 0; spawn = 0; objects = []; sparkles = [];
+    player.x = 200; player.y = 420; keys.left = keys.right = false;
+    updateHud();
+  }
+  function start() {
+    reset(); state = 'playing'; overlay.classList.add('hidden'); last = performance.now();
+  }
+  function finish() {
+    state = 'over'; keys.left = keys.right = false;
+    if (score > best) {
+      best = score;
+      try { localStorage.setItem('skyDashBest', String(best)); } catch {}
+    }
+    updateHud();
+    $('panelEmoji').textContent = '🌟';
+    $('panelTitle').textContent = 'Nice flying!';
+    $('panelText').textContent = 'You scored ' + score + ' points and collected ' + stars + ' star' + (stars === 1 ? '' : 's') + '. Give it another try to beat your best!';
+    $('startBtn').textContent = 'Play again';
+    overlay.classList.remove('hidden');
+  }
+  function updateHud() {
+    $('score').textContent = score; $('best').textContent = best; $('stars').textContent = stars;
+  }
+  $('startBtn').addEventListener('click', () => {
+    $('panelEmoji').textContent = '🌈'; $('panelTitle').textContent = 'Ready to fly?';
+    $('startBtn').textContent = 'Start playing'; start();
+  });
+  function setKey(key, down) {
+    if (key === 'ArrowLeft' || key.toLowerCase() === 'a') keys.left = down;
+    if (key === 'ArrowRight' || key.toLowerCase() === 'd') keys.right = down;
+  }
+  addEventListener('keydown', e => {
+    if (['ArrowLeft','ArrowRight','a','A','d','D',' '].includes(e.key)) e.preventDefault();
+    if (state !== 'playing' && (e.key === ' ' || e.key === 'Enter')) { start(); return; }
+    setKey(e.key, true);
+  });
+  addEventListener('keyup', e => setKey(e.key, false));
+  addEventListener('blur', () => { keys.left = keys.right = false; });
+  function bindHold(id, dir) {
+    const b = $(id);
+    const down = e => { e.preventDefault(); keys[dir] = true; };
+    const up = e => { e.preventDefault(); keys[dir] = false; };
+    b.addEventListener('pointerdown', down);
+    b.addEventListener('pointerup', up);
+    b.addEventListener('pointercancel', up);
+    b.addEventListener('pointerleave', up);
+  }
+  bindHold('leftBtn','left'); bindHold('rightBtn','right');
+
+  function spawnObject() {
+    const isStar = Math.random() < 0.42;
+    objects.push({ type: isStar ? 'star' : 'cloud', x: rand(28,372), y: -30, r: isStar ? 13 : rand(17,24), speed: rand(115,175) + Math.min(elapsed*2.5,125), phase: rand(0,6.28) });
+  }
+  function hit(o) {
+    const ox = o.x, oy = o.y;
+    return Math.abs(player.x - ox) < player.w*.48 + o.r*.78 &&
+           Math.abs(player.y - oy) < player.h*.42 + o.r*.72;
+  }
+  function update(dt) {
+    if (state !== 'playing') return;
+    elapsed += dt;
+    if (keys.left) player.x -= player.speed * dt;
+    if (keys.right) player.x += player.speed * dt;
+    player.x = Math.max(22, Math.min(378, player.x));
+    spawn += dt;
+    const interval = Math.max(.36, .8 - elapsed*.006);
+    if (spawn > interval) { spawn = 0; spawnObject(); }
+    for (let i=objects.length-1;i>=0;i--) {
+      const o = objects[i]; o.y += o.speed*dt; o.phase += dt*3;
+      if (hit(o)) {
+        if (o.type === 'star') {
+          stars++; score += 10;
+          for(let j=0;j<7;j++) sparkles.push({x:o.x,y:o.y,vx:rand(-65,65),vy:rand(-90,25),life:.5});
+          objects.splice(i,1); updateHud(); continue;
+        } else { finish(); return; }
+      }
+      if (o.y > 535) { objects.splice(i,1); if(o.type === 'cloud') { score++; updateHud(); } }
+    }
+    sparkles.forEach(s => { s.x += s.vx*dt; s.y += s.vy*dt; s.life -= dt; });
+    sparkles = sparkles.filter(s => s.life > 0);
+  }
+  function cloud(x,y,r) {
+    ctx.fillStyle = '#f2f6ff'; ctx.beginPath();
+    ctx.arc(x-r*.42,y+r*.08,r*.48,0,Math.PI*2);
+    ctx.arc(x,y-r*.18,r*.58,0,Math.PI*2);
+    ctx.arc(x+r*.45,y+r*.1,r*.42,0,Math.PI*2);
+    ctx.roundRect(x-r*.72,y+r*.05,r*1.45,r*.45,r*.2); ctx.fill();
+    ctx.fillStyle='#c5d8ff'; ctx.beginPath(); ctx.ellipse(x,y+r*.35,r*.48,r*.08,0,0,Math.PI*2); ctx.fill();
+  }
+  function star(x,y,r,rot=0) {
+    ctx.save(); ctx.translate(x,y); ctx.rotate(rot); ctx.beginPath();
+    for(let i=0;i<10;i++){const a=-Math.PI/2+i*Math.PI/5, rr=i%2===0?r:r*.45;ctx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr);}
+    ctx.closePath();ctx.fillStyle='#ffd75e';ctx.shadowColor='#ffcf4d';ctx.shadowBlur=12;ctx.fill();ctx.shadowBlur=0;ctx.strokeStyle='#fff1a6';ctx.lineWidth=1.5;ctx.stroke();ctx.restore();
+  }
+  function draw() {
+    const g=ctx.createLinearGradient(0,0,0,500);g.addColorStop(0,'#658ee8');g.addColorStop(.58,'#9dc8ff');g.addColorStop(1,'#f5c9f2');
+    ctx.fillStyle=g;ctx.fillRect(0,0,400,500);
+    // soft sky dots
+    for(let i=0;i<28;i++){let x=(i*83+23)%400,y=(i*61+17)%500;ctx.fillStyle='rgba(255,255,255,.35)';ctx.beginPath();ctx.arc(x,y,((i%3)+1)*.7,0,Math.PI*2);ctx.fill();}
+    // distant cloud banks
+    cloud(40,95,27);cloud(340,155,23);cloud(70,300,19);cloud(355,365,29);
+    objects.forEach(o => o.type==='star' ? star(o.x,o.y,o.r,Math.sin(o.phase)*.18) : cloud(o.x,o.y,o.r));
+    sparkles.forEach(s=>{ctx.globalAlpha=Math.max(0,s.life*2);star(s.x,s.y,3);ctx.globalAlpha=1;});
+    // cute little flying character
+    ctx.save();ctx.translate(player.x,player.y);
+    ctx.fillStyle='#263b78';ctx.beginPath();ctx.ellipse(0,8,18,22,0,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#b7a0ff';ctx.beginPath();ctx.ellipse(0,4,17,20,0,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#fff';ctx.beginPath();ctx.ellipse(-6,0,5,7,0,0,Math.PI*2);ctx.ellipse(6,0,5,7,0,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#26345e';ctx.beginPath();ctx.arc(-5,1,2.5,0,Math.PI*2);ctx.arc(7,1,2.5,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='#26345e';ctx.lineWidth=2;ctx.beginPath();ctx.arc(1,7,4,.15,Math.PI-.15);ctx.stroke();
+    ctx.fillStyle='#ff8fc8';ctx.beginPath();ctx.ellipse(-12,7,4,2.5,0,0,Math.PI*2);ctx.ellipse(12,7,4,2.5,0,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#fff';ctx.beginPath();ctx.ellipse(-7,-8,3,2, -.5,0,Math.PI*2);ctx.fill();
+    ctx.restore();
+    if(state==='playing'){
+      ctx.fillStyle='#fff';ctx.font='bold 13px system-ui';ctx.textAlign='center';ctx.fillText('KEEP FLYING!',200,28);
+    }
+  }
+  function loop(now) {
+    const dt = Math.min((now-last)/1000 || 0, .035); last=now;
+    update(dt); draw(); requestAnimationFrame(loop);
+  }
+  draw(); requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
